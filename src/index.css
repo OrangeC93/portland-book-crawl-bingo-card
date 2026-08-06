@@ -1,0 +1,87 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-serif: "Playfair Display", Georgia, serif;
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+
+  --color-natural-bg: #F7F3EE;
+  --color-natural-text: #2D2926;
+  --color-natural-sage: #5A5A40;
+  --color-natural-light-sage: #F1F3E1;
+  --color-natural-beige: #E8E2D9;
+  --color-natural-border: #D9D1C7;
+  --color-natural-brown: #8B4513;
+  --color-natural-terracotta: #BC6C25;
+}
+
+/* Custom background pattern for a cozy paper/bookstore look with Natural Tones */
+body {
+  background-color: #F7F3EE;
+  color: #2D2926;
+  font-family: var(--font-sans);
+}
+
+.paper-texture {
+  background-image: radial-gradient(#D9D1C7 0.5px, transparent 0.5px), radial-gradient(#D9D1C7 0.5px, #F7F3EE 0.5px);
+  background-size: 24px 24px;
+  background-position: 0 0, 12px 12px;
+  opacity: 0.95;
+}
+
+@media print {
+  body {
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+
+  /* Hide header, navigation, and background controls when printing */
+  #forest-trim,
+  #quick-actions-bar,
+  #app-description-header,
+  #dashboard-sidebar,
+  #saved-crawls-library-section,
+  #celebration-overlay,
+  #end-crawl-archive-overlay,
+  .no-print {
+    display: none !important;
+  }
+
+  #export-modal-overlay {
+    position: static !important;
+    background: transparent !important;
+    padding: 0 !important;
+    backdrop-filter: none !important;
+    box-shadow: none !important;
+  }
+
+  #export-modal-container {
+    max-width: 100% !important;
+    box-shadow: none !important;
+    border: none !important;
+    padding: 0 !important;
+  }
+
+  #exportable-recap-card {
+    border: 1px solid #D9D1C7 !important;
+    box-shadow: none !important;
+    page-break-inside: avoid;
+    width: 100% !important;
+  }
+
+  .print-only {
+    display: block !important;
+  }
+
+  /* Ensure card spans cleanly across printable PDF sheet */
+  #main-dashboard-grid {
+    display: block !important;
+    width: 100% !important;
+  }
+
+  #bingo-card-stage {
+    width: 100% !important;
+    page-break-inside: avoid;
+  }
+}
