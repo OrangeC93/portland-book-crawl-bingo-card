@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo, MouseEvent } from 'react';
+import { useState, useEffect, useRef, useMemo, MouseEvent, FormEvent } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
@@ -30,7 +30,12 @@ import {
   Printer,
   Image as ImageIcon,
   Copy,
-  ExternalLink
+  ExternalLink,
+  Building2,
+  Vote,
+  Send,
+  Globe,
+  CheckCircle2
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
@@ -290,6 +295,58 @@ export default function App() {
   });
   const [newCrawlName, setNewCrawlName] = useState<string>("");
   const [viewingSavedId, setViewingSavedId] = useState<string | null>(null);
+
+  // Expanding Cities nomination modal state
+  const [showCityNominationModal, setShowCityNominationModal] = useState<boolean>(false);
+  const [selectedCityOption, setSelectedCityOption] = useState<string>("Seattle, WA");
+  const [customCityText, setCustomCityText] = useState<string>("");
+  const [nominationEmail, setNominationEmail] = useState<string>("");
+  const [submittedCityVote, setSubmittedCityVote] = useState<string | null>(() => {
+    return localStorage.getItem('portland_book_crawl_voted_city_v1') || null;
+  });
+  const [nominationSubmitted, setNominationSubmitted] = useState<boolean>(false);
+
+  const handleVoteForCity = (e: FormEvent) => {
+    e.preventDefault();
+    const finalCity = selectedCityOption === "Other" ? (customCityText.trim() || "Custom City") : selectedCityOption;
+    if (!finalCity) return;
+
+    playSound('win');
+    localStorage.setItem('portland_book_crawl_voted_city_v1', finalCity);
+    setSubmittedCityVote(finalCity);
+    setNominationSubmitted(true);
+
+    // Send submission email notification directly via FormSubmit AJAX service
+    try {
+      fetch("https://formsubmit.co/ajax/cr.awangg@gmail.com", {
+        method: "POST",
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify({
+          _subject: `New City Nomination: ${finalCity} (Book Crawl Bingo)`,
+          NominatedCity: finalCity,
+          UserEmail: nominationEmail || "Anonymous Reader",
+          SubmittedAt: new Date().toLocaleString(),
+          Source: "book-crawl-bingo-card.com"
+        })
+      }).catch(err => console.log("City submission logged locally:", err));
+    } catch (err) {
+      console.log("Submission error:", err);
+    }
+
+    confetti({
+      particleCount: 30,
+      spread: 60,
+      colors: ['#5A5A40', '#BC6C25', '#FAF6F0']
+    });
+
+    setTimeout(() => {
+      setShowCityNominationModal(false);
+      setNominationSubmitted(false);
+    }, 2200);
+  };
 
   // --- AUDIO SYNTHESIS ---
   const playSound = (type: 'click' | 'toggle' | 'completed' | 'win' | 'badge') => {
@@ -1425,10 +1482,22 @@ export default function App() {
         
         {/* APP TITLE & DESCRIPTION */}
         <div className="text-center mb-8" id="app-description-header">
-          <span className="inline-flex items-center gap-1.5 px-3.5 py-1 bg-[#F1F3E1] border border-[#D9D1C7] text-[#5A5A40] rounded-full text-xs font-semibold uppercase tracking-wider mb-3 shadow-2xs">
-            <Compass className="w-3.5 h-3.5 animate-spin-slow text-[#5A5A40]" />
-            Portland, Oregon — Craft Indie Crawl
-          </span>
+          <div className="flex flex-wrap items-center justify-center gap-2 mb-3">
+            <span className="inline-flex items-center gap-1.5 px-3.5 py-1 bg-[#F1F3E1] border border-[#D9D1C7] text-[#5A5A40] rounded-full text-xs font-semibold uppercase tracking-wider shadow-2xs">
+              <Compass className="w-3.5 h-3.5 animate-spin-slow text-[#5A5A40]" />
+              Portland, Oregon — Craft Indie Crawl
+            </span>
+            <button
+              onClick={() => { playSound('click'); setShowCityNominationModal(true); }}
+              className="inline-flex items-center gap-1.5 px-3 py-1 bg-white hover:bg-[#FAF6F0] border border-[#D9D1C7] text-[#8B4513] hover:text-[#5A5A40] rounded-full text-xs font-semibold transition-all cursor-pointer shadow-2xs group"
+              id="btn-more-cities-badge"
+              title="Vote for upcoming cities like Seattle or Los Angeles"
+            >
+              <Globe className="w-3.5 h-3.5 text-[#BC6C25] group-hover:rotate-12 transition-transform" />
+              <span>Expanding to More Cities</span>
+              <span className="bg-[#BC6C25] text-white text-[9px] font-bold px-1.5 py-0.2 rounded-full">New</span>
+            </button>
+          </div>
           <h1 className="text-4xl sm:text-5xl font-serif italic text-[#5A5A40] leading-none mb-3">
             Rose City Book Crawl Bingo
           </h1>
@@ -1727,6 +1796,8 @@ export default function App() {
 
         </div>
 
+
+
         {/* --- PAGE FOOTER & COPYRIGHT NOTICE --- */}
         <footer className="mt-12 pt-8 border-t border-[#D9D1C7]/60 text-center text-[#6F4E37] font-sans text-xs pb-6">
           <div className="max-w-3xl mx-auto space-y-1.5">
@@ -1820,6 +1891,134 @@ export default function App() {
                   Shuffle & Roll
                 </button>
               </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* --- CITY NOMINATION / VOTING MODAL --- */}
+      <AnimatePresence>
+        {showCityNominationModal && (
+          <div className="fixed inset-0 bg-[#2D2926]/40 flex items-center justify-center p-4 z-50 backdrop-blur-xs" id="city-nomination-overlay">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white border-2 border-[#5A5A40] max-w-md w-full p-6 rounded-2xl shadow-2xl relative overflow-hidden text-left"
+              id="city-nomination-container"
+            >
+              <button
+                onClick={() => { playSound('click'); setShowCityNominationModal(false); }}
+                className="absolute top-4 right-4 p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full transition-all cursor-pointer"
+                id="btn-close-city-modal"
+              >
+                <X className="w-5 h-5" />
+              </button>
+
+              {!nominationSubmitted ? (
+                <form onSubmit={handleVoteForCity} className="space-y-4">
+                  <div className="flex items-center gap-2 mb-1">
+                    <div className="w-9 h-9 rounded-full bg-[#F1F3E1] text-[#5A5A40] flex items-center justify-center shrink-0">
+                      <Building2 className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-serif font-bold text-[#2D2926]">Vote for Next City</h3>
+                      <p className="text-xs text-[#6F4E37]">Where should Book Crawl Bingo launch next?</p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-xs font-semibold text-[#2D2926] block">Select a City Candidate:</label>
+                    <div className="grid grid-cols-1 gap-2">
+                      {[
+                        { id: "Seattle, WA", label: "☕ Seattle, WA", desc: "Emerald City Independent Bookstores & Roasters" },
+                        { id: "Los Angeles, CA", label: "🌴 Los Angeles, CA", desc: "SoCal Indie Bookshops, Vintage Reads & Cafes" },
+                        { id: "San Francisco, CA", label: "🌉 San Francisco, CA", desc: "Bay Area Bookshops, City Lights & Mission Vibe" },
+                        { id: "New York City, NY", label: "🗽 New York City, NY", desc: "NYC Classic Strand, Neighborhood Bookstores" },
+                        { id: "Austin, TX", label: "🎸 Austin, TX", desc: "Live Music, Book Crawls & Local Coffee" },
+                        { id: "Other", label: "✍️ Other City / Nominate Yours", desc: "Type your hometown or favorite book city" }
+                      ].map((opt) => (
+                        <label
+                          key={opt.id}
+                          onClick={() => playSound('toggle')}
+                          className={`
+                            flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-all
+                            ${selectedCityOption === opt.id
+                              ? "bg-[#F1F3E1] border-[#5A5A40] ring-1 ring-[#5A5A40]"
+                              : "bg-[#FAF6F0]/60 border-[#D9D1C7] hover:bg-[#FAF6F0]"
+                            }
+                          `}
+                        >
+                          <input
+                            type="radio"
+                            name="city-option"
+                            value={opt.id}
+                            checked={selectedCityOption === opt.id}
+                            onChange={(e) => setSelectedCityOption(e.target.value)}
+                            className="mt-0.5 accent-[#5A5A40]"
+                          />
+                          <div>
+                            <span className="text-xs font-bold text-[#2D2926] block">{opt.label}</span>
+                            <span className="text-[11px] text-[#6F4E37] leading-tight block">{opt.desc}</span>
+                          </div>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+
+                  {selectedCityOption === "Other" && (
+                    <div>
+                      <label className="text-xs font-semibold text-[#2D2926] block mb-1">Custom City Name:</label>
+                      <input
+                        type="text"
+                        placeholder="e.g. Chicago, IL or London, UK"
+                        value={customCityText}
+                        onChange={(e) => setCustomCityText(e.target.value)}
+                        className="w-full px-3 py-2 text-xs bg-[#FAF6F0] border border-[#D9D1C7] rounded-lg focus:outline-none focus:border-[#5A5A40]"
+                        required
+                      />
+                    </div>
+                  )}
+
+                  <div>
+                    <label className="text-xs font-semibold text-[#2D2926] block mb-1">Your Email (Optional - Get notified when it launches):</label>
+                    <input
+                      type="email"
+                      placeholder="you@example.com"
+                      value={nominationEmail}
+                      onChange={(e) => setNominationEmail(e.target.value)}
+                      className="w-full px-3 py-2 text-xs bg-[#FAF6F0] border border-[#D9D1C7] rounded-lg focus:outline-none focus:border-[#5A5A40]"
+                    />
+                  </div>
+
+                  <div className="pt-2 flex gap-3">
+                    <button
+                      type="button"
+                      onClick={() => { playSound('click'); setShowCityNominationModal(false); }}
+                      className="flex-1 py-2.5 bg-[#E8E2D9] hover:bg-[#D9D1C7] text-xs font-semibold text-[#2D2926] rounded-xl cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      className="flex-1 py-2.5 bg-[#5A5A40] hover:bg-[#4C4C36] text-xs font-semibold text-white rounded-xl cursor-pointer shadow-sm flex items-center justify-center gap-1.5"
+                    >
+                      <Send className="w-3.5 h-3.5" />
+                      <span>Submit City Vote</span>
+                    </button>
+                  </div>
+                </form>
+              ) : (
+                <div className="py-8 text-center space-y-3">
+                  <div className="w-12 h-12 bg-[#F1F3E1] text-[#5A5A40] rounded-full flex items-center justify-center mx-auto">
+                    <CheckCircle2 className="w-7 h-7 text-emerald-600" />
+                  </div>
+                  <h3 className="text-lg font-serif font-bold text-[#2D2926]">Vote Recorded! 🎉</h3>
+                  <p className="text-xs text-[#6F4E37] max-w-xs mx-auto leading-relaxed">
+                    Thank you for voting for <strong className="text-[#2D2926]">{submittedCityVote}</strong>! We're compiling book lovers' feedback to prioritize our next crawl launch.
+                  </p>
+                </div>
+              )}
             </motion.div>
           </div>
         )}
