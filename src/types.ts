@@ -4,6 +4,8 @@
 
 export type Category = 'bookstore' | 'drink' | 'food' | 'prompt' | 'activity' | 'free';
 
+export type FreeSpaceTheme = 'terracotta' | 'sage' | 'coffee' | 'rose' | 'amber';
+
 export interface Tile {
   id: string;
   row: number;

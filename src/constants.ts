@@ -1,4 +1,12 @@
-import { Tile, Category } from './types';
+import { Tile, Category, FreeSpaceTheme } from './types';
+
+export const FREE_SPACE_THEMES: Record<FreeSpaceTheme, { name: string; swatchBg: string; swatchText: string; bgClass: string; textClass: string }> = {
+  terracotta: { name: "Terracotta", swatchBg: "#BC6C25", swatchText: "#FFFFFF", bgClass: "bg-[#BC6C25]", textClass: "text-white" },
+  sage: { name: "Forest Sage", swatchBg: "#5A5A40", swatchText: "#FFFFFF", bgClass: "bg-[#5A5A40]", textClass: "text-white" },
+  coffee: { name: "Espresso", swatchBg: "#6F4E37", swatchText: "#FFFFFF", bgClass: "bg-[#6F4E37]", textClass: "text-white" },
+  rose: { name: "Rose Wood", swatchBg: "#9C4146", swatchText: "#FFFFFF", bgClass: "bg-[#9C4146]", textClass: "text-white" },
+  amber: { name: "Warm Amber", swatchBg: "#D4A373", swatchText: "#1A1A1A", bgClass: "bg-[#D4A373]", textClass: "text-[#1A1A1A]" },
+};
 
 // Curated library of items to generate random, colorful, and fun Portland book crawl boards.
 export const BOOK_CRAWL_ITEMS_MAP: Record<Exclude<Category, 'free'>, string[]> = {

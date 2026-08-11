@@ -220,10 +220,10 @@ const CATEGORY_COLORS: Record<Category, { text: string; bg: string; border: stri
     icon: Compass
   },
   free: {
-    text: "text-white",
-    bg: "bg-[#BC6C25]",
-    border: "border-[#BC6C25]",
-    accent: "bg-[#BC6C25]",
+    text: "text-[#5A5A40]",
+    bg: "bg-[#F1F3E1]",
+    border: "border-[#D9D1C7]",
+    accent: "bg-[#5A5A40]",
     label: "Free Space",
     icon: MapPin
   }
@@ -2329,38 +2329,6 @@ export default function App() {
                         </button>
                       )}
                     </div>
-
-                    {/* Free Space Color Accent Selector (when editing Free Space tile) */}
-                    {selectedTile.category === 'free' && (
-                      <div className="p-3.5 bg-[#FAF6F0] border border-[#D9D1C7] rounded-xl space-y-2">
-                        <div className="flex items-center justify-between">
-                          <label className="block text-[11px] font-bold uppercase tracking-wider text-[#5A5A40]">
-                            🎨 Select Free Space Color Theme
-                          </label>
-                          <span className="text-[10px] text-gray-500 italic">Saved automatically</span>
-                        </div>
-                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 pt-1">
-                          {(Object.keys(FREE_SPACE_THEMES) as FreeSpaceTheme[]).map((thmKey) => {
-                            const thm = FREE_SPACE_THEMES[thmKey];
-                            const isSelected = freeSpaceTheme === thmKey;
-                            return (
-                              <button
-                                key={thmKey}
-                                type="button"
-                                onClick={() => { playSound('toggle'); setFreeSpaceTheme(thmKey); }}
-                                style={{ backgroundColor: thm.swatchBg, color: thm.swatchText }}
-                                className={`py-1.5 px-2 rounded-lg text-[10px] font-bold transition-all flex items-center justify-between border shadow-2xs cursor-pointer ${
-                                  isSelected ? 'ring-2 ring-offset-1 ring-[#5A5A40] border-[#2D2926]' : 'border-black/10 opacity-80 hover:opacity-100'
-                                }`}
-                              >
-                                <span className="truncate">{thm.name}</span>
-                                {isSelected && <Check className="w-3 h-3 stroke-[3] shrink-0 ml-1" />}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    )}
 
                     {/* Tile Title / Custom Prompt Text field */}
                     <div>
