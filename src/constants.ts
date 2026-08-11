@@ -65,12 +65,59 @@ export const BOOK_CRAWL_ITEMS_MAP: Record<Exclude<Category, 'free'>, string[]> =
   ]
 };
 
+export const SEATTLE_BOOK_CRAWL_ITEMS_MAP: Record<Exclude<Category, 'free'>, string[]> = {
+  bookstore: [
+    "Visit Elliott Bay Book Company in Capitol Hill",
+    "Browse Queen Anne Book Company neighborhood shelves",
+    "Discover children's & YA reads at Secret Garden Books in Ballard",
+    "Browse tech, sci-fi & pop-science at Ada's Technical Books",
+    "Find a vintage treasure at Twice Sold Tales or Mercer Street Books",
+    "Check out Left Bank Books collective near Pike Place Market",
+    "Browse the stacks at Madison Books in Park Madison",
+    "Find a hand-written 'Staff Pick' recommendation at an indie store",
+    "Pick up a book published by a Pacific Northwest publisher",
+    "Spot a cozy bookstore cat resting in a neighborhood shop"
+  ],
+  drink: [
+    "Sip an espresso at Espresso Vivace or Monorail Espresso",
+    "Enjoy a craft coffee at Anchorhead or Storyville Coffee",
+    "Order a signature lavender latte or dark mocha in Capitol Hill",
+    "Sip warm matcha or loose-leaf tea near Green Lake",
+    "Read a chapter with a local Washington craft brew or cider in Ballard",
+    "Pair a book with a glass of local Washington wine in a cozy lounge",
+    "Find a window seat watching rain fall over Puget Sound"
+  ],
+  food: [
+    "Grab fresh hot doughnuts at Top Pot Doughnuts",
+    "Enjoy a warm pastry or croque-monsieur from Macrina Bakery",
+    "Snack on fresh baked goods from Bakery Nouveau in West Seattle",
+    "Eat a hot piroshky from Piroshky Piroshky near Pike Place",
+    "Enjoy a scoop of Molly Moon's homemade ice cream with your book",
+    "Snack on fresh berries or pastries from a Seattle Farmers Market"
+  ],
+  prompt: [
+    "Read a chapter by Octavia Butler, Ted Chiang, or a Seattle author",
+    "Read a scene set near Puget Sound, the Cascade Mountains, or rainy streets",
+    "Read a book with a dark green, navy blue, or rain-swept cover",
+    "Read a chapter from a book with a map on page 1 or front pages",
+    "Select a book solely by its cover artwork in a local shop"
+  ],
+  activity: [
+    "Take the King County Water Taxi or Washington State Ferry while reading",
+    "Read a chapter while riding the Seattle Monorail or Link Light Rail",
+    "Drop or retrieve a book from a neighborhood Little Free Library",
+    "Snap a reading photo with Mt. Rainier or Elliott Bay in the distance",
+    "Walk 5,000 steps exploring Ballard, Capitol Hill, or Fremont",
+    "Collect an indie bookstore bookmark or sticker at checkout"
+  ]
+};
+
 export const FREE_SPACE_PROMPTS = [
   "Portland Crawl Free Space 🌲",
   "Powell's City of Books Visit (The Pearl District)",
   "Rose City Reading Haven 📖",
   "PNW Indie Crawl Free Space ☕",
-  "Portland Book Lovers' Free Space 📚"
+  "Seattle Emerald Crawl Free Space ☕"
 ];
 
 // Default static 5x5 board layout so players get a perfectly balanced, immediately playable default board.
@@ -145,16 +192,18 @@ interface BingoLine {
 /**
  * Generate a random 5x5 board
  */
-export function generateRandomBoard(): Tile[] {
+export function generateRandomBoard(city: string = "Portland, OR"): Tile[] {
   const result: Tile[] = [];
 
-  // Create shufled copies of items
+  const itemMap = city.includes("Seattle") ? SEATTLE_BOOK_CRAWL_ITEMS_MAP : BOOK_CRAWL_ITEMS_MAP;
+
+  // Create shuffled copies of items
   const shufflers: Record<Exclude<Category, 'free'>, string[]> = {
-    bookstore: shuffleArray([...BOOK_CRAWL_ITEMS_MAP.bookstore]),
-    drink: shuffleArray([...BOOK_CRAWL_ITEMS_MAP.drink]),
-    food: shuffleArray([...BOOK_CRAWL_ITEMS_MAP.food]),
-    prompt: shuffleArray([...BOOK_CRAWL_ITEMS_MAP.prompt]),
-    activity: shuffleArray([...BOOK_CRAWL_ITEMS_MAP.activity])
+    bookstore: shuffleArray([...itemMap.bookstore]),
+    drink: shuffleArray([...itemMap.drink]),
+    food: shuffleArray([...itemMap.food]),
+    prompt: shuffleArray([...itemMap.prompt]),
+    activity: shuffleArray([...itemMap.activity])
   };
 
   const categoriesOrder: Exclude<Category, 'free'>[] = ['bookstore', 'drink', 'food', 'prompt', 'activity'];
@@ -165,12 +214,14 @@ export function generateRandomBoard(): Tile[] {
 
       // Center is Free Space
       if (r === 2 && c === 2) {
-        const randomFreeText = FREE_SPACE_PROMPTS[Math.floor(Math.random() * FREE_SPACE_PROMPTS.length)];
+        const freePromptText = city.includes("Seattle")
+          ? "Seattle Emerald Crawl Free Space ☕"
+          : "Portland Crawl Free Space 🌲";
         result.push({
           id: `tile-${index}`,
           row: r,
           col: c,
-          text: randomFreeText,
+          text: freePromptText,
           category: 'free',
           completed: false,
           completedAt: null,
@@ -182,14 +233,13 @@ export function generateRandomBoard(): Tile[] {
       }
 
       // Draw an item based on the column or cyclical category distribution
-      // Column index lets us balance them uniquely, e.g. Col 0 matches bookstores, Col 1 drinks, Col 2 food, etc.
       const category = categoriesOrder[c];
       let text = shufflers[category].pop();
 
       // If we run out, reboot shuffling
       if (!text) {
-        shufflers[category] = shuffleArray([...BOOK_CRAWL_ITEMS_MAP[category]]);
-        text = shufflers[category].pop() || "A whimsical Portland adventure!";
+        shufflers[category] = shuffleArray([...itemMap[category]]);
+        text = shufflers[category].pop() || (city.includes("Seattle") ? "A cozy Seattle book adventure!" : "A whimsical Portland adventure!");
       }
 
       result.push({
@@ -205,6 +255,54 @@ export function generateRandomBoard(): Tile[] {
   }
 
   return result;
+}
+
+export function detectCityFromBoard(tiles: Tile[]): string {
+  if (!tiles || tiles.length === 0) return "Portland, OR";
+  
+  // Center free space check
+  const centerTile = tiles.find(t => t.category === 'free') || tiles[12];
+  if (centerTile && centerTile.text) {
+    const textLower = centerTile.text.toLowerCase();
+    if (textLower.includes("seattle") || textLower.includes("emerald")) {
+      return "Seattle, WA";
+    }
+    if (textLower.includes("portland") || textLower.includes("rose city") || textLower.includes("powell")) {
+      return "Portland, OR";
+    }
+  }
+
+  // Scan all tile texts
+  const fullText = tiles.map(t => t.text).join(" ").toLowerCase();
+  if (
+    fullText.includes("seattle") ||
+    fullText.includes("elliott bay") ||
+    fullText.includes("pike place") ||
+    fullText.includes("monorail") ||
+    fullText.includes("ballard") ||
+    fullText.includes("queen anne") ||
+    fullText.includes("puget sound") ||
+    fullText.includes("emerald crawl")
+  ) {
+    return "Seattle, WA";
+  }
+
+  if (
+    fullText.includes("portland") ||
+    fullText.includes("powell's") ||
+    fullText.includes("burnside") ||
+    fullText.includes("stumptown") ||
+    fullText.includes("hawthorne") ||
+    fullText.includes("alberta") ||
+    fullText.includes("voodoo") ||
+    fullText.includes("pip's") ||
+    fullText.includes("mcmenamins") ||
+    fullText.includes("rose city")
+  ) {
+    return "Portland, OR";
+  }
+
+  return "Portland, OR";
 }
 
 // Fisher-Yates shuffle

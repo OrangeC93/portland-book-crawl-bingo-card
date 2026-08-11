@@ -35,12 +35,13 @@ import {
   Vote,
   Send,
   Globe,
-  CheckCircle2
+  CheckCircle2,
+  Palette
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
 import { Tile, Category, BingoLine, SavedCrawl } from './types';
-import { DEFAULT_BOARD_TILES, BINGO_LINES, generateRandomBoard } from './constants';
+import { DEFAULT_BOARD_TILES, BINGO_LINES, generateRandomBoard, detectCityFromBoard } from './constants';
 
 const PRESET_STICKERS = [
   { char: "📚", name: "Crawl Reads" },
@@ -220,9 +221,9 @@ const CATEGORY_COLORS: Record<Category, { text: string; bg: string; border: stri
   },
   free: {
     text: "text-white",
-    bg: "bg-[#5A5A40]",
-    border: "border-[#5A5A40]",
-    accent: "bg-[#5A5A40]",
+    bg: "bg-[#BC6C25]",
+    border: "border-[#BC6C25]",
+    accent: "bg-[#BC6C25]",
     label: "Free Space",
     icon: MapPin
   }
@@ -279,6 +280,7 @@ export default function App() {
   const [copiedToast, setCopiedToast] = useState<boolean>(false);
 
   // Modal Editing Draft States
+  const [draftTileText, setDraftTileText] = useState<string>("");
   const [draftLocation, setDraftLocation] = useState<string>("");
   const [draftNotes, setDraftNotes] = useState<string>("");
   const [draftRating, setDraftRating] = useState<number>(5);
@@ -346,6 +348,82 @@ export default function App() {
       setShowCityNominationModal(false);
       setNominationSubmitted(false);
     }, 2200);
+  };
+
+  // --- AI SEARCH GROUNDING STATE & HANDLER ---
+  const [currentCity, setCurrentCity] = useState<string>(() => {
+    return localStorage.getItem('portland_book_crawl_city_v1') || "Portland, OR";
+  });
+  useEffect(() => {
+    localStorage.setItem('portland_book_crawl_city_v1', currentCity);
+  }, [currentCity]);
+
+  const [shuffleTargetCity, setShuffleTargetCity] = useState<string>("Portland, OR");
+  const [isGeneratingGrounded, setIsGeneratingGrounded] = useState<boolean>(false);
+  const [groundedSources, setGroundedSources] = useState<Array<{ title: string; uri: string }>>([]);
+  const [selectedCityForAI, setSelectedCityForAI] = useState<string>("Portland, OR");
+  const [showAIGeneratorModal, setShowAIGeneratorModal] = useState<boolean>(false);
+  const [groundedError, setGroundedError] = useState<string | null>(null);
+
+  const handleGenerateGroundedBoard = async (cityToSearch: string) => {
+    setIsGeneratingGrounded(true);
+    setGroundedError(null);
+    playSound('click');
+
+    try {
+      const res = await fetch("/api/generate-grounded-board", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ city: cityToSearch })
+      });
+
+      const data = await res.json();
+      if (!data.success || !Array.isArray(data.tiles) || data.tiles.length === 0) {
+        throw new Error(data.error || "Failed to fetch web-grounded local spots.");
+      }
+
+      const newTiles: Tile[] = data.tiles.map((item: any, index: number) => {
+        const row = Math.floor(index / 5);
+        const col = index % 5;
+        const validCategories: Category[] = ['bookstore', 'drink', 'food', 'prompt', 'activity', 'free'];
+        const category: Category = validCategories.includes(item.category)
+          ? item.category
+          : (index === 12 ? 'free' : 'activity');
+
+        return {
+          id: `tile-ai-${Date.now()}-${index}`,
+          row,
+          col,
+          text: item.text || "Explore Local Spot",
+          category,
+          completed: index === 12,
+          completedAt: index === 12 ? Date.now() : null,
+          locationName: item.locationName || "",
+          notes: item.notes || "",
+          rating: undefined
+        };
+      });
+
+      setTiles(newTiles);
+      setCurrentCity(cityToSearch);
+      setGroundedSources(data.searchSources || []);
+      setStartTime(null);
+      setChallengeActive(false);
+      setCompletedBingoTimes({});
+      setShowAIGeneratorModal(false);
+      playSound('win');
+
+      confetti({
+        particleCount: 50,
+        spread: 75,
+        colors: ['#5A5A40', '#BC6C25', '#ECC52C']
+      });
+    } catch (err: any) {
+      console.error("Error generating grounded board:", err);
+      setGroundedError(err.message || "Failed to connect to Gemini Search Grounding service.");
+    } finally {
+      setIsGeneratingGrounded(false);
+    }
   };
 
   // --- AUDIO SYNTHESIS ---
@@ -880,7 +958,8 @@ export default function App() {
       const cardEl = await waitForCardElement();
       if (!cardEl) return;
 
-      const baseName = endCrawlProposedName || currentSavedCrawl?.name || 'Portland_Book_Crawl';
+      const defaultBaseName = activeCity.includes("Seattle") ? 'Seattle_Book_Crawl' : 'Portland_Book_Crawl';
+      const baseName = endCrawlProposedName || currentSavedCrawl?.name || defaultBaseName;
       const safeName = baseName.replace(/[^a-zA-Z0-9_-]/g, '_');
 
       const canvas = await getCardCanvas(cardEl);
@@ -939,7 +1018,8 @@ export default function App() {
       const cardEl = await waitForCardElement();
       if (!cardEl) return;
 
-      const baseName = endCrawlProposedName || currentSavedCrawl?.name || 'Portland_Book_Crawl';
+      const defaultBaseName = activeCity.includes("Seattle") ? 'Seattle_Book_Crawl' : 'Portland_Book_Crawl';
+      const baseName = endCrawlProposedName || currentSavedCrawl?.name || defaultBaseName;
       const safeName = baseName.replace(/[^a-zA-Z0-9_-]/g, '_');
 
       const canvas = await getCardCanvas(cardEl);
@@ -981,10 +1061,14 @@ export default function App() {
 
   const handleCopyShareText = () => {
     playSound('toggle');
-    const title = endCrawlProposedName || currentSavedCrawl?.name || "Rose City Book Crawl";
+    const isSeattle = activeCity.includes("Seattle");
+    const isPortland = activeCity.includes("Portland");
+    const defaultTitle = isSeattle ? "Emerald City Book Crawl" : isPortland ? "Rose City Book Crawl" : `${activeCity} Book Crawl`;
+    const title = endCrawlProposedName || currentSavedCrawl?.name || defaultTitle;
     const checkedTiles = displayTiles.filter(t => t.completed);
     
-    let summaryText = `🌲 ${title} 📚\n`;
+    const icon = isSeattle ? "☕" : "🌲";
+    let summaryText = `${icon} ${title} 📚\n`;
     summaryText += `🏆 Progress: ${completedCount}/25 Tiles Checked | ${totalBingos} Bingos Completed!\n\n`;
     
     if (checkedTiles.length > 0) {
@@ -999,7 +1083,8 @@ export default function App() {
       }
     }
     
-    summaryText += `\nExplore Portland's indie bookstores & coffee shops! ☕📖`;
+    const cityName = isSeattle ? "Seattle" : isPortland ? "Portland" : activeCity;
+    summaryText += `\nExplore ${cityName}'s indie bookstores & coffee shops! ☕📖`;
 
     if (navigator.clipboard) {
       navigator.clipboard.writeText(summaryText);
@@ -1110,6 +1195,7 @@ export default function App() {
     setSelectedTileId(tile.id);
     
     // Seed draft states
+    setDraftTileText(tile.text || "");
     setDraftLocation(tile.locationName || "");
     setDraftNotes(tile.notes || "");
     setDraftRating(tile.rating || 5);
@@ -1139,6 +1225,7 @@ export default function App() {
 
           return {
             ...tile,
+            text: draftTileText.trim() || tile.text,
             completed: draftCompleted,
             completedAt: stampedTime,
             locationName: draftLocation,
@@ -1176,14 +1263,23 @@ export default function App() {
     setShowResetWarning(false);
   };
 
-  // Generate a brand new, randomized 5x5 Portland crawler card
-  const handleConfirmShuffle = () => {
+  // Generate a brand new, randomized 5x5 crawler card for active city
+  // Switch city and regenerate board atomically
+  const handleSwitchCity = (newCity: string) => {
     playSound('toggle');
-    const newBoard = generateRandomBoard();
+    setCurrentCity(newCity);
+    const newBoard = generateRandomBoard(newCity);
     setTiles(newBoard);
     setStartTime(null);
     setChallengeActive(false);
     setCompletedBingoTimes({});
+    setViewingSavedId(null);
+  };
+
+  // Generate a brand new, randomized 5x5 crawler card for selected shuffle city
+  const handleConfirmShuffle = () => {
+    playSound('toggle');
+    handleSwitchCity(shuffleTargetCity);
     setShowShuffleWarning(false);
   };
 
@@ -1198,14 +1294,21 @@ export default function App() {
   // Trigger stopping the crawl, opening the cozy save-and-archive prompt
   const handleEndChallenge = () => {
     playSound('toggle');
-    const defaultName = `Cozy Portland Crawl - ${new Date().toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })} 📖🌲`;
+    const isSeattle = activeCity.includes("Seattle");
+    const cityName = isSeattle ? "Emerald City" : "Rose City";
+    const emoji = isSeattle ? "☕" : "🌲";
+    const defaultName = `Cozy ${cityName} Crawl - ${new Date().toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })} 📖${emoji}`;
     setEndCrawlProposedName(defaultName);
     setShowEndCrawlModal(true);
   };
 
   const handleConfirmEndAndArchive = (customName: string) => {
     playSound('badge');
-    const finalName = customName.trim() || `Cozy Portland Crawl - ${new Date().toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })} 📖🌲`;
+    const isSeattle = activeCity.includes("Seattle");
+    const cityName = isSeattle ? "Emerald City" : "Rose City";
+    const emoji = isSeattle ? "☕" : "🌲";
+    const defaultName = `Cozy ${cityName} Crawl - ${new Date().toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })} 📖${emoji}`;
+    const finalName = customName.trim() || defaultName;
     
     const newSaved: SavedCrawl = {
       id: `crawl-${Date.now()}`,
@@ -1312,6 +1415,22 @@ export default function App() {
     return tiles;
   }, [currentSavedCrawl, tiles]);
 
+  const activeCity = useMemo(() => {
+    return detectCityFromBoard(displayTiles) || currentCity;
+  }, [displayTiles, currentCity]);
+
+  const headerTitle = useMemo(() => {
+    if (activeCity.includes("Seattle")) return "Emerald City Book Crawl Bingo";
+    if (activeCity.includes("Portland")) return "Rose City Book Crawl Bingo";
+    return `${activeCity} Book Crawl Bingo`;
+  }, [activeCity]);
+
+  const headerBadge = useMemo(() => {
+    if (activeCity.includes("Seattle")) return "Seattle, Washington — Emerald City Crawl";
+    if (activeCity.includes("Portland")) return "Portland, Oregon — Craft Indie Crawl";
+    return `${activeCity} — Local Book Crawl`;
+  }, [activeCity]);
+
   const completedCount = useMemo(() => displayTiles.filter(t => t.completed).length, [displayTiles]);
   const progressPercent = Math.round((completedCount / 25) * 100);
 
@@ -1382,16 +1501,20 @@ export default function App() {
     }
 
     // Persona Title & Character Generator
-    let personaTitle = "🌲 PNW Book Explorer";
-    let personaSubtitle = "Exploring Portland's literary corners one page at a time.";
+    const isSeattle = activeCity.includes("Seattle");
+    const isPortland = activeCity.includes("Portland");
+    const cityName = isSeattle ? "Seattle" : isPortland ? "Portland" : activeCity;
+
+    let personaTitle = isSeattle ? "☕ Emerald City Book Explorer" : "🌲 PNW Book Explorer";
+    let personaSubtitle = `Exploring ${cityName}'s literary corners one page at a time.`;
     let personaBadgeIcon = "📚";
 
     if (totalBingos >= 4 || completedList.length >= 20) {
-      personaTitle = "👑 Portland Literary Monarch";
-      personaSubtitle = "Conquered virtually the entire Rose City bookstore bingo grid!";
+      personaTitle = isSeattle ? "👑 Emerald City Literary Monarch" : "👑 Portland Literary Monarch";
+      personaSubtitle = `Conquered virtually the entire ${isSeattle ? "Seattle" : "Rose City"} bookstore bingo grid!`;
       personaBadgeIcon = "🏆";
     } else if (fastestGapMinutes !== null && fastestGapMinutes <= 15) {
-      personaTitle = "⚡ PDX Speed Demon Crawler";
+      personaTitle = isSeattle ? "⚡ SEA Speed Demon Crawler" : "⚡ PDX Speed Demon Crawler";
       personaSubtitle = `Lightning-fast book hunter with a record ${fastestGapMinutes}-minute hop!`;
       personaBadgeIcon = "⚡";
     } else if (photoList.length >= 2) {
@@ -1404,11 +1527,11 @@ export default function App() {
       personaBadgeIcon = "☕";
     } else if (completedList.length >= 8) {
       personaTitle = "🗺️ Neighborhood Hop Master";
-      personaSubtitle = "Navigating across Portland's vibrant bookstore districts.";
+      personaSubtitle = `Navigating across ${cityName}'s vibrant bookstore districts.`;
       personaBadgeIcon = "📍";
     } else if (completedList.length >= 1) {
       personaTitle = "📖 Cozy Nook Wanderer";
-      personaSubtitle = "Stepping into Portland's finest independent bookshops.";
+      personaSubtitle = `Stepping into ${cityName}'s finest independent bookshops.`;
       personaBadgeIcon = "🌿";
     }
 
@@ -1483,23 +1606,34 @@ export default function App() {
         {/* APP TITLE & DESCRIPTION */}
         <div className="text-center mb-8" id="app-description-header">
           <div className="flex flex-wrap items-center justify-center gap-2 mb-3">
-            <span className="inline-flex items-center gap-1.5 px-3.5 py-1 bg-[#F1F3E1] border border-[#D9D1C7] text-[#5A5A40] rounded-full text-xs font-semibold uppercase tracking-wider shadow-2xs">
-              <Compass className="w-3.5 h-3.5 animate-spin-slow text-[#5A5A40]" />
-              Portland, Oregon — Craft Indie Crawl
-            </span>
-            <button
-              onClick={() => { playSound('click'); setShowCityNominationModal(true); }}
-              className="inline-flex items-center gap-1.5 px-3 py-1 bg-white hover:bg-[#FAF6F0] border border-[#D9D1C7] text-[#8B4513] hover:text-[#5A5A40] rounded-full text-xs font-semibold transition-all cursor-pointer shadow-2xs group"
-              id="btn-more-cities-badge"
-              title="Vote for upcoming cities like Seattle or Los Angeles"
-            >
-              <Globe className="w-3.5 h-3.5 text-[#BC6C25] group-hover:rotate-12 transition-transform" />
-              <span>Expanding to More Cities</span>
-              <span className="bg-[#BC6C25] text-white text-[9px] font-bold px-1.5 py-0.2 rounded-full">New</span>
-            </button>
+            {/* Quick City Switcher Pills */}
+            <div className="inline-flex items-center p-1 bg-[#FAF6F0] border border-[#D9D1C7] rounded-full shadow-2xs">
+              <button
+                type="button"
+                onClick={() => handleSwitchCity("Portland, OR")}
+                className={`px-3.5 py-1 rounded-full text-xs font-bold transition-all flex items-center gap-1 cursor-pointer ${
+                  activeCity.includes("Portland")
+                    ? "bg-[#5A5A40] text-white shadow-xs"
+                    : "text-[#5A5A40] hover:text-[#2D2926]"
+                }`}
+              >
+                <span>🌲 Rose City (Portland)</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSwitchCity("Seattle, WA")}
+                className={`px-3.5 py-1 rounded-full text-xs font-bold transition-all flex items-center gap-1 cursor-pointer ${
+                  activeCity.includes("Seattle")
+                    ? "bg-[#5A5A40] text-white shadow-xs"
+                    : "text-[#5A5A40] hover:text-[#2D2926]"
+                }`}
+              >
+                <span>☕ Emerald City (Seattle)</span>
+              </button>
+            </div>
           </div>
           <h1 className="text-4xl sm:text-5xl font-serif italic text-[#5A5A40] leading-none mb-3">
-            Rose City Book Crawl Bingo
+            {headerTitle}
           </h1>
           <p className="max-w-2xl mx-auto text-sm sm:text-base text-[#2D2926] leading-relaxed">
             Sip craft brews, discover cozy independent bookstores on rainy streets, find local PNW indie authors, and track check-ins. Complete a row within <span className="font-semibold text-[#8B4513]">24 Hours</span> of its first check to trigger the victory celebration!
@@ -1628,6 +1762,38 @@ export default function App() {
               <span className="w-1.5 h-1.5 rounded-full bg-[#BC6C25]" />
               Pro Tip: Click any square to check it off, add your bookstore location name, or leave reviews!
             </div>
+
+            {/* Live Search Grounding Sources citation block */}
+            {groundedSources.length > 0 && (
+              <div className="bg-[#FAF6F0] border border-[#D9D1C7] rounded-xl p-3 text-xs text-[#2D2926] space-y-1.5 shadow-2xs mt-1">
+                <div className="flex items-center justify-between">
+                  <span className="font-serif font-bold text-[#5A5A40] flex items-center gap-1.5">
+                    <Globe className="w-3.5 h-3.5 text-[#BC6C25]" />
+                    <span>Live Web Search Grounding Sources ({groundedSources.length})</span>
+                  </span>
+                  <button 
+                    onClick={() => setGroundedSources([])}
+                    className="text-[10px] text-neutral-400 hover:text-neutral-600 cursor-pointer"
+                  >
+                    Dismiss
+                  </button>
+                </div>
+                <div className="flex flex-wrap gap-1.5 pt-1">
+                  {groundedSources.slice(0, 6).map((src, idx) => (
+                    <a
+                      key={idx}
+                      href={src.uri}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 bg-white border border-[#D9D1C7] text-[#5A5A40] hover:text-[#BC6C25] hover:border-[#BC6C25] px-2 py-0.5 rounded-md text-[10px] font-medium transition-colors truncate max-w-[210px]"
+                    >
+                      <span className="truncate">{src.title || src.uri}</span>
+                      <ExternalLink className="w-2.5 h-2.5 shrink-0" />
+                    </a>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* RIGHT PANE: CONTROL TIMERS & STATS DASHBOARD (lg:col-span-4) */}
@@ -1768,10 +1934,21 @@ export default function App() {
                 Local Crawl Board Actions
               </h4>
               <p className="text-[11px] text-[#6F4E37] leading-normal pb-1">
-                You can reset the current board checkboxes to clean slate, or roll an entirely new randomized set of bookstores, coffee roasters, and prompts!
+                Use Gemini Live Web Search to discover real current roasters & local spots, or perform an instant offline shuffle!
               </p>
 
-              <div className="grid grid-cols-2 gap-3 pt-2">
+              {/* Primary AI Search Grounding Button */}
+              <button
+                type="button"
+                onClick={() => { playSound('click'); setShowAIGeneratorModal(true); }}
+                className="w-full flex items-center justify-center gap-2 px-3 py-2.5 bg-[#BC6C25] hover:bg-[#A35D1B] text-white font-bold text-xs rounded-xl transition-all cursor-pointer shadow-3xs active:scale-98"
+                id="btn-trigger-ai-grounded-generator"
+              >
+                <Sparkles className="w-4 h-4 text-amber-200" />
+                <span>✨ Gemini Live Web Search Discovery</span>
+              </button>
+
+              <div className="grid grid-cols-2 gap-2 pt-1">
                 <button
                   onClick={() => { playSound('click'); setShowResetWarning(true); }}
                   className="flex items-center justify-center gap-1.5 px-3 py-2 bg-white hover:bg-[#FAF6F0] text-xs font-semibold text-[#2D2926] border border-[#D9D1C7] rounded-xl transition-all cursor-pointer shadow-3xs"
@@ -1782,12 +1959,12 @@ export default function App() {
                 </button>
 
                 <button
-                  onClick={() => { playSound('click'); setShowShuffleWarning(true); }}
+                  onClick={() => { playSound('click'); setShuffleTargetCity(activeCity); setShowShuffleWarning(true); }}
                   className="flex items-center justify-center gap-1.5 px-3 py-2 bg-[#5A5A40] hover:bg-[#4C4C36] text-xs font-semibold text-white border border-[#5A5A40] rounded-xl transition-all cursor-pointer shadow-3xs"
                   id="btn-trigger-shuffle"
                 >
-                  <Sparkles className="w-3.5 h-3.5" />
-                  <span>Shuffle Card</span>
+                  <Compass className="w-3.5 h-3.5" />
+                  <span>Offline Shuffle</span>
                 </button>
               </div>
             </div>
@@ -1802,16 +1979,16 @@ export default function App() {
         <footer className="mt-12 pt-8 border-t border-[#D9D1C7]/60 text-center text-[#6F4E37] font-sans text-xs pb-6">
           <div className="max-w-3xl mx-auto space-y-1.5">
             <p className="font-serif text-sm font-semibold text-[#2D2926]">
-              © 2026 Portland Book Crawl.
+              © 2026 PNW Book Crawl.
             </p>
             <p className="text-[11px] text-[#6F4E37]/80 leading-relaxed max-w-md mx-auto italic">
-              A personal project created for fun, book reading, and exploring local independent bookstores across Portland and the PNW.
+              A personal project created for fun, book reading, and exploring local independent bookstores across Portland, Seattle, and the Pacific Northwest.
             </p>
             <p className="text-[11px] text-[#5A5A40] font-medium">
               Questions or feedback? Contact: <a href="mailto:cr.awangg@gmail.com" className="underline hover:text-[#2D2926] font-semibold">cr.awangg@gmail.com</a>
             </p>
             <div className="flex items-center justify-center gap-4 text-[10px] text-[#5A5A40] font-medium pt-1">
-              <span>🌲 Handcrafted for Portland & PNW Book Lovers</span>
+              <span>🌲 Handcrafted for PNW Book Lovers & Explorers ☕</span>
             </div>
           </div>
         </footer>
@@ -1872,9 +2049,40 @@ export default function App() {
                 <Sparkles className="w-6 h-6 animate-pulse" />
               </div>
               <h3 className="text-lg font-serif font-bold text-[#2D2926] mb-2">Shuffle & Re-roll Card?</h3>
-              <p className="text-xs text-[#6F4E37] leading-relaxed mb-5">
-                Are you ready to roll a set of randomized Portland crawl challenges? This clears current checkmarks and generates 24 completely new items.
+              <p className="text-xs text-[#6F4E37] leading-relaxed mb-4">
+                <strong>Offline Shuffle</strong> rotates through 25 local spots and reading prompts from our built-in offline library instantly without web requests.
               </p>
+
+              {/* Offline City Selector */}
+              <div className="mb-5 text-left bg-white p-2.5 rounded-xl border border-[#D9D1C7]">
+                <label className="block text-[10px] font-bold text-[#5A5A40] uppercase tracking-wider mb-1.5">
+                  Select Offline City:
+                </label>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <button
+                    type="button"
+                    onClick={() => setShuffleTargetCity("Portland, OR")}
+                    className={`py-1.5 px-2 rounded-lg border font-medium transition-all text-center cursor-pointer ${
+                      shuffleTargetCity.includes("Portland")
+                        ? "bg-[#5A5A40] text-white border-[#5A5A40] shadow-2xs"
+                        : "bg-[#FAF6F0] text-[#2D2926] border-[#D9D1C7] hover:bg-[#E8E2D9]"
+                    }`}
+                  >
+                    🌲 Portland, OR
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShuffleTargetCity("Seattle, WA")}
+                    className={`py-1.5 px-2 rounded-lg border font-medium transition-all text-center cursor-pointer ${
+                      shuffleTargetCity.includes("Seattle")
+                        ? "bg-[#5A5A40] text-white border-[#5A5A40] shadow-2xs"
+                        : "bg-[#FAF6F0] text-[#2D2926] border-[#D9D1C7] hover:bg-[#E8E2D9]"
+                    }`}
+                  >
+                    ☕ Seattle, WA
+                  </button>
+                </div>
+              </div>
               <div className="flex gap-3 justify-center">
                 <button
                   onClick={() => { playSound('click'); setShowShuffleWarning(false); }}
@@ -2122,6 +2330,54 @@ export default function App() {
                       )}
                     </div>
 
+                    {/* Free Space Color Accent Selector (when editing Free Space tile) */}
+                    {selectedTile.category === 'free' && (
+                      <div className="p-3.5 bg-[#FAF6F0] border border-[#D9D1C7] rounded-xl space-y-2">
+                        <div className="flex items-center justify-between">
+                          <label className="block text-[11px] font-bold uppercase tracking-wider text-[#5A5A40]">
+                            🎨 Select Free Space Color Theme
+                          </label>
+                          <span className="text-[10px] text-gray-500 italic">Saved automatically</span>
+                        </div>
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 pt-1">
+                          {(Object.keys(FREE_SPACE_THEMES) as FreeSpaceTheme[]).map((thmKey) => {
+                            const thm = FREE_SPACE_THEMES[thmKey];
+                            const isSelected = freeSpaceTheme === thmKey;
+                            return (
+                              <button
+                                key={thmKey}
+                                type="button"
+                                onClick={() => { playSound('toggle'); setFreeSpaceTheme(thmKey); }}
+                                style={{ backgroundColor: thm.swatchBg, color: thm.swatchText }}
+                                className={`py-1.5 px-2 rounded-lg text-[10px] font-bold transition-all flex items-center justify-between border shadow-2xs cursor-pointer ${
+                                  isSelected ? 'ring-2 ring-offset-1 ring-[#5A5A40] border-[#2D2926]' : 'border-black/10 opacity-80 hover:opacity-100'
+                                }`}
+                              >
+                                <span className="truncate">{thm.name}</span>
+                                {isSelected && <Check className="w-3 h-3 stroke-[3] shrink-0 ml-1" />}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Tile Title / Custom Prompt Text field */}
+                    <div>
+                      <label className="block text-[11px] font-bold uppercase tracking-wider text-neutral-500 mb-1">
+                        ✏️ Custom Tile Prompt / Spot Title
+                      </label>
+                      <input
+                        type="text"
+                        id="input-tile-text"
+                        value={draftTileText}
+                        disabled={isReadOnly}
+                        onChange={(e) => setDraftTileText(e.target.value)}
+                        placeholder="e.g., Visit local bakery, Read sci-fi in cozy cafe"
+                        className="w-full text-xs p-2.5 border border-[#D9D1C7] rounded-xl focus:outline-none focus:ring-2 focus:ring-[#5A5A40]/20 focus:border-[#5A5A40] bg-[#FAF6F0] disabled:opacity-60 font-medium text-[#2D2926]"
+                      />
+                    </div>
+
                     {/* Location field */}
                     <div>
                       <label className="block text-[11px] font-bold uppercase tracking-wider text-neutral-500 mb-1">
@@ -2348,11 +2604,11 @@ export default function App() {
               </span>
 
               <h2 className="text-3xl font-serif font-bold text-[#2D2926] tracking-tight mb-2">
-                Rose City Crawl Victory!
+                {activeCity.includes("Seattle") ? "Emerald City Crawl Victory!" : activeCity.includes("Portland") ? "Rose City Crawl Victory!" : `${activeCity} Crawl Victory!`}
               </h2>
 
               <p className="text-sm text-[#6F4E37] mb-6 max-w-xs mx-auto">
-                Magnificent job! You successfully completed <span className="font-bold text-[#5A5A40]">{recentCelebratedLine.label}</span> inside a <span className="font-bold text-[#BC6C25]">24-Hour Window</span> during your Portland Book Crawl.
+                Magnificent job! You successfully completed <span className="font-bold text-[#5A5A40]">{recentCelebratedLine.label}</span> inside a <span className="font-bold text-[#BC6C25]">24-Hour Window</span> during your {activeCity.includes("Seattle") ? "Seattle" : "Portland"} Book Crawl.
               </p>
 
               {/* Certificate visual mock */}
@@ -2360,7 +2616,7 @@ export default function App() {
                 <BookCheck className="absolute top-3 right-3 text-[#5A5A40]/10 w-16 h-16 pointer-events-none" />
                 
                 <h4 className="text-[10px] uppercase tracking-wider text-[#6F4E37] font-bold">
-                  Portland Book Crawler Certificate
+                  {activeCity.includes("Seattle") ? "Seattle" : activeCity.includes("Portland") ? "Portland" : activeCity} Book Crawler Certificate
                 </h4>
                 
                 <div>
@@ -2451,10 +2707,10 @@ export default function App() {
                   <div className="flex justify-between items-start border-b border-[#D9D1C7] pb-3">
                     <div>
                       <span className="text-[9px] font-bold uppercase tracking-widest text-[#5A5A40] block">
-                        Rose City Book Crawl — Portland, OR 🌲
+                        {headerBadge}
                       </span>
                       <h2 className="font-serif text-lg sm:text-xl font-bold text-[#2D2926] mt-0.5">
-                        {endCrawlProposedName || currentSavedCrawl?.name || "Portland Bookstore Crawl"}
+                        {endCrawlProposedName || currentSavedCrawl?.name || (activeCity.includes("Seattle") ? "Seattle Bookstore Crawl" : "Portland Bookstore Crawl")}
                       </h2>
                       <span className="text-[10px] text-gray-500 font-mono">
                         Date: {new Date().toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
@@ -2487,7 +2743,9 @@ export default function App() {
                       </p>
                     </div>
                     <div className="rank-container text-right shrink-0 flex flex-col items-end justify-center">
-                      <span className="text-[8.5px] font-mono uppercase text-amber-200/80 block mb-0.5">PDX Crawl Rank</span>
+                      <span className="text-[8.5px] font-mono uppercase text-amber-200/80 block mb-0.5">
+                        {activeCity.includes("Seattle") ? "SEA Crawl Rank" : activeCity.includes("Portland") ? "PDX Crawl Rank" : `${activeCity.split(',')[0]} Rank`}
+                      </span>
                       <span className="rank-badge text-xs font-bold font-mono text-amber-300 block text-right leading-tight">
                         <span className="inline-block">
                           {completedCount >= 25 ? 'Master 🌟' : completedCount >= 12 ? 'Veteran 🌲' : completedCount >= 5 ? 'Explorer 🗺️' : 'Novice 📖'}
@@ -2548,32 +2806,30 @@ export default function App() {
 
                   {/* 5x5 Visual Board Grid with Full Text */}
                   <div className="grid grid-cols-5 gap-1.5 sm:gap-2 bg-[#E8E2D9] p-2 sm:p-2.5 rounded-xl" id="exportable-5x5-grid">
-                    {displayTiles.map((t, idx) => (
-                      <div
-                        key={idx}
-                        className={`bingo-tile p-1.5 sm:p-2 rounded-lg text-[8.5px] sm:text-[9.5px] flex flex-col items-center justify-center text-center border leading-snug min-h-[68px] sm:min-h-[78px] transition-all relative overflow-hidden ${
-                          t.completed 
-                            ? 'bg-[#5A5A40] text-white border-[#5A5A40] shadow-xs' 
-                            : 'bg-white text-[#2D2926] border-[#D9D1C7]'
-                        }`}
-                      >
-                        <div className="tile-text-container my-auto flex flex-col items-center justify-center text-center w-full px-0.5 space-y-0.5">
-                          <span className="font-sans font-medium block leading-tight text-center">
-                            {t.text}
-                          </span>
-                          {t.locationName && (
-                            <span className={`text-[7.5px] font-mono italic block leading-tight text-center ${t.completed ? 'text-[#FAF6F0]' : 'text-[#BC6C25]'}`}>
-                              📍 {t.locationName}
+                    {displayTiles.map((t, idx) => {
+                      const tCfg = CATEGORY_COLORS[t.category];
+                      return (
+                        <div
+                          key={idx}
+                          className={`bingo-tile p-1.5 sm:p-2 rounded-lg text-[8.5px] sm:text-[9.5px] flex flex-col items-center justify-center text-center border leading-snug min-h-[68px] sm:min-h-[78px] transition-all relative overflow-hidden ${
+                            t.completed 
+                              ? `${tCfg.bg} ${tCfg.text} ${tCfg.border} shadow-xs font-semibold` 
+                              : 'bg-white text-[#2D2926] border-[#D9D1C7]'
+                          }`}
+                        >
+                          <div className="tile-text-container my-auto flex flex-col items-center justify-center text-center w-full px-0.5">
+                            <span className="font-sans font-medium block leading-tight text-center">
+                              {t.text}
                             </span>
+                          </div>
+                          {t.completed && (
+                            <div className="export-done-badge absolute bottom-1 right-1 bg-white text-[#5A5A40] px-1.5 py-0.5 rounded-full inline-flex items-center justify-center font-bold text-[7px] sm:text-[7.5px] shadow-2xs leading-none shrink-0">
+                              <span className="inline-flex items-center leading-none">✓ Done</span>
+                            </div>
                           )}
                         </div>
-                        {t.completed && (
-                          <div className="export-done-badge absolute bottom-1 right-1 bg-white text-[#5A5A40] px-1.5 py-0.5 rounded-full inline-flex items-center justify-center font-bold text-[7px] sm:text-[7.5px] shadow-2xs leading-none shrink-0">
-                            <span className="inline-flex items-center leading-none">✓ Done</span>
-                          </div>
-                        )}
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
 
                   {/* Featured Photo Memories Polaroid Wall */}
@@ -2798,6 +3054,109 @@ export default function App() {
         )}
       </AnimatePresence>
 
+
+      {/* --- AI GEMINI SEARCH GROUNDING GENERATOR MODAL --- */}
+      <AnimatePresence>
+        {showAIGeneratorModal && (
+          <div className="fixed inset-0 bg-[#2D2926]/50 flex items-center justify-center p-4 z-50 backdrop-blur-xs" id="ai-generator-modal-overlay">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0, y: 15 }}
+              animate={{ scale: 1, y: 0, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0, y: 15 }}
+              className="bg-white border-2 border-[#D9D1C7] max-w-md w-full rounded-2xl shadow-2xl overflow-hidden p-6 relative"
+              id="ai-generator-modal-container"
+            >
+              <div className="flex justify-between items-center pb-3 border-b border-neutral-100">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 bg-[#BC6C25]/10 text-[#BC6C25] rounded-full flex items-center justify-center">
+                    <Sparkles className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h3 className="font-serif text-base font-bold text-[#2D2926]">
+                      Gemini Live Search Grounding
+                    </h3>
+                    <p className="text-[10px] text-[#6F4E37]">
+                      Real web search for fresh local spots, signature drinks & books
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowAIGeneratorModal(false)}
+                  className="p-1.5 text-neutral-400 hover:text-neutral-600 rounded-lg hover:bg-neutral-100 cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="py-4 space-y-4">
+                <p className="text-xs text-[#2D2926]/80 leading-relaxed">
+                  Gemini will execute a real-time Google search for current reviews, popular drinks, local bakeries, and indie bookstores in your target city to craft a custom 5x5 bingo card.
+                </p>
+
+                {/* City selection */}
+                <div className="space-y-1.5">
+                  <label className="block text-[11px] font-bold text-[#5A5A40] uppercase tracking-wider">
+                    Select City for Discovery:
+                  </label>
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    {[
+                      { city: "Portland, OR", label: "🌲 Portland, OR", active: true },
+                      { city: "Seattle, WA", label: "☕ Seattle, WA", active: true },
+                      { city: "More Cities", label: "📍 Other Cities (Coming Soon)", active: false }
+                    ].map((item) => (
+                      <button
+                        key={item.city}
+                        type="button"
+                        disabled={!item.active}
+                        onClick={() => item.active && setSelectedCityForAI(item.city)}
+                        className={`py-2 px-3 rounded-xl border text-left font-medium transition-all ${
+                          !item.active
+                            ? "bg-neutral-100 text-neutral-400 border-neutral-200 cursor-not-allowed col-span-2 text-center"
+                            : selectedCityForAI === item.city
+                            ? "bg-[#5A5A40] text-white border-[#5A5A40] shadow-xs cursor-pointer"
+                            : "bg-[#FAF6F0] text-[#2D2926] border-[#D9D1C7] hover:bg-[#E8E2D9] cursor-pointer"
+                        }`}
+                      >
+                        {item.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {groundedError && (
+                  <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-red-600 text-xs">
+                    ⚠️ {groundedError}
+                  </div>
+                )}
+
+                {/* Submit button / Loading State */}
+                <div className="pt-2">
+                  <button
+                    type="button"
+                    disabled={isGeneratingGrounded}
+                    onClick={() => {
+                      handleGenerateGroundedBoard(selectedCityForAI);
+                    }}
+                    className="w-full py-3 bg-[#BC6C25] hover:bg-[#A35D1B] disabled:bg-neutral-300 text-white font-bold rounded-xl text-xs transition-all cursor-pointer flex items-center justify-center gap-2 shadow-sm"
+                  >
+                    {isGeneratingGrounded ? (
+                      <>
+                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        <span>Searching Live Web & Grounding Spots...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles className="w-4 h-4 text-amber-200" />
+                        <span>Generate Live Grounded Card ({selectedCityForAI})</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
     </div>
   );

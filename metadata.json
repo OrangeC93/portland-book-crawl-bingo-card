@@ -1,6 +1,6 @@
 {
-  "name": "Portland Book Crawl Bingo",
-  "description": "A 5x5 bingo card game for exploring Portland independent bookstores, cozy cafes, craft beverages, and reading prompts, featuring a 24-hour challenge timer and success animations.",
+  "name": "PNW Book Crawl Bingo",
+  "description": "A 5x5 bingo card game for exploring Pacific Northwest independent bookstores, cozy cafes, craft beverages, and reading prompts across Portland, Seattle, and beyond.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
