@@ -202,6 +202,7 @@ interface BingoLine {
  */
 export function generateRandomBoard(city: string = "Portland, OR"): Tile[] {
   const result: Tile[] = [];
+  const usedTexts = new Set<string>();
 
   const itemMap = city.includes("Seattle") ? SEATTLE_BOOK_CRAWL_ITEMS_MAP : BOOK_CRAWL_ITEMS_MAP;
 
@@ -225,6 +226,7 @@ export function generateRandomBoard(city: string = "Portland, OR"): Tile[] {
         const freePromptText = city.includes("Seattle")
           ? "Seattle Emerald Crawl Free Space ☕"
           : "Portland Crawl Free Space 🌲";
+        usedTexts.add(freePromptText.toLowerCase().trim());
         result.push({
           id: `tile-${index}`,
           row: r,
@@ -240,15 +242,30 @@ export function generateRandomBoard(city: string = "Portland, OR"): Tile[] {
         continue;
       }
 
-      // Draw an item based on the column or cyclical category distribution
+      // Draw an item based on the column category distribution
       const category = categoriesOrder[c];
-      let text = shufflers[category].pop();
+      let text = "";
 
-      // If we run out, reboot shuffling
-      if (!text) {
-        shufflers[category] = shuffleArray([...itemMap[category]]);
-        text = shufflers[category].pop() || (city.includes("Seattle") ? "A cozy Seattle book adventure!" : "A whimsical Portland adventure!");
+      // Try up to 20 times to pick an item not yet used on this board
+      let attempts = 0;
+      while (attempts < 20) {
+        if (shufflers[category].length === 0) {
+          shufflers[category] = shuffleArray([...itemMap[category]]);
+        }
+        const candidate = shufflers[category].pop();
+        if (candidate && !usedTexts.has(candidate.toLowerCase().trim())) {
+          text = candidate;
+          break;
+        }
+        attempts++;
       }
+
+      if (!text) {
+        const cityName = city.includes("Seattle") ? "Seattle" : "Portland";
+        text = `Discover a unique ${cityName} ${category} spot (#${index + 1})`;
+      }
+
+      usedTexts.add(text.toLowerCase().trim());
 
       result.push({
         id: `tile-${index}`,

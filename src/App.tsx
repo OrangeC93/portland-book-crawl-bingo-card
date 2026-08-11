@@ -382,6 +382,7 @@ export default function App() {
         throw new Error(data.error || "Failed to fetch web-grounded local spots.");
       }
 
+      const usedTexts = new Set<string>();
       const newTiles: Tile[] = data.tiles.map((item: any, index: number) => {
         const row = Math.floor(index / 5);
         const col = index % 5;
@@ -390,11 +391,26 @@ export default function App() {
           ? item.category
           : (index === 12 ? 'free' : 'activity');
 
+        let text = (item.text || "Explore Local Spot").trim();
+        if (index === 12) {
+          text = cityToSearch.includes("Seattle")
+            ? "Seattle Emerald Crawl Free Space ☕"
+            : "Portland Crawl Free Space 🌲";
+        } else if (usedTexts.has(text.toLowerCase())) {
+          if (item.locationName && !text.toLowerCase().includes(item.locationName.toLowerCase())) {
+            text = `${text} @ ${item.locationName}`;
+          } else {
+            text = `${text} #${index + 1}`;
+          }
+        }
+
+        usedTexts.add(text.toLowerCase());
+
         return {
           id: `tile-ai-${Date.now()}-${index}`,
           row,
           col,
-          text: item.text || "Explore Local Spot",
+          text,
           category,
           completed: index === 12,
           completedAt: index === 12 ? Date.now() : null,

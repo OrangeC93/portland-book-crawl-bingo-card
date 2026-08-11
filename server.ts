@@ -76,7 +76,8 @@ Return ONLY valid JSON with this exact structure:
             contents: prompt,
             config: {
               tools: [{ googleSearch: {} }],
-              responseMimeType: "application/json",
+              // Note: Do NOT set responseMimeType: "application/json" when using googleSearch tool
+              // to prevent "The string did not match the expected pattern" API validation errors.
             },
           });
           if (response?.text) break;
@@ -91,9 +92,9 @@ Return ONLY valid JSON with this exact structure:
       if (response?.text) break;
     }
 
-    // Fallback: If search tool service is unavailable (503), try standard generation without search tool
+    // Fallback: If search tool service is unavailable or rate-limited, try standard generation
     if (!response?.text) {
-      console.warn("[Gemini API] Falling back to generation without googleSearch tool...");
+      console.warn("[Gemini API] Falling back to standard generation without googleSearch tool...");
       try {
         response = await ai.models.generateContent({
           model: "gemini-3.6-flash",
@@ -123,8 +124,9 @@ Return ONLY valid JSON with this exact structure:
     });
 
     let parsedData: any = {};
+    const cleanedText = responseText.replace(/```json\n?/gi, '').replace(/```\n?/g, '').trim();
     try {
-      parsedData = JSON.parse(responseText);
+      parsedData = JSON.parse(cleanedText);
     } catch (parseErr) {
       console.warn("Parsing JSON directly failed, attempting regex extraction...", parseErr);
       const jsonMatch = responseText.match(/\{[\s\S]*\}/);
@@ -135,10 +137,35 @@ Return ONLY valid JSON with this exact structure:
       }
     }
 
+    // Strict deduplication of returned tile texts
+    const rawTiles = Array.isArray(parsedData.tiles) ? parsedData.tiles : [];
+    const seenTexts = new Set<string>();
+    const cleanedTiles: any[] = [];
+
+    rawTiles.forEach((tile: any, idx: number) => {
+      let tileText = (tile.text || `Local Spot #${idx + 1}`).trim();
+      let lower = tileText.toLowerCase();
+
+      if (seenTexts.has(lower)) {
+        if (tile.locationName && !lower.includes(tile.locationName.toLowerCase())) {
+          tileText = `${tileText} (${tile.locationName})`;
+        } else {
+          tileText = `${tileText} #${idx + 1}`;
+        }
+        lower = tileText.toLowerCase();
+      }
+
+      seenTexts.add(lower);
+      cleanedTiles.push({
+        ...tile,
+        text: tileText
+      });
+    });
+
     res.json({
       success: true,
       city: parsedData.city || city,
-      tiles: parsedData.tiles || [],
+      tiles: cleanedTiles,
       searchSources,
     });
   } catch (error: any) {
